@@ -11,7 +11,7 @@ The module is designed to support reusable CloudFront deployments for static web
 - CloudFront distribution creation and configuration.
 - S3 REST and custom HTTP/HTTPS origins.
 - Origin Access Control (OAC) for private S3 origins.
-- Per-origin connection settings, custom headers, Origin Shield, and mutual TLS options.
+- Per-origin connection settings, custom headers, and Origin Shield.
 - Default and ordered cache behaviors.
 - AWS-managed, existing, and custom cache policies.
 - AWS-managed, existing, and custom origin request policies.
@@ -126,6 +126,53 @@ The following tables describe the root module's public inputs, their declared de
 
 A `null` default means the root input is not assigned a value by default. Supply the value when required by your configuration. Optional resource attributes may be omitted when passed as null.
 
+### 5.0 Root module input inventory
+
+The following table lists every root input declared in the uploaded root `variables.tf`. Values shown as `null` are the root variable defaults; the root passes these values to the child module. Do not assume a child variable's declared default automatically replaces an explicit `null` passed by the root.
+
+| Variable | Type | Root default | Required / purpose |
+|---|---|---|---|
+| `aws_region` | string | `us-east-1` | AWS provider region for CloudFront/global resources. |
+| `s3_bucket_name` | string | Required | Existing S3 origin bucket name used by the root bucket policy. |
+| `s3_bucket_arn` | string | Required | Existing S3 origin bucket ARN used by the root bucket policy. |
+| `s3_bucket_region` | string | `ap-south-1` | Region of the existing S3 origin bucket. |
+| `pricing` | any | `null` | Pricing model configuration. |
+| `origin_access_controls` | any | `null` | OAC configuration map. |
+| `origins` | any | `null` | CloudFront origins map. |
+| `origin_settings` | any | `{}` | Optional per-origin settings. |
+| `default_cache_behavior` | any | See section 5.4 | Default behavior and policy selections. |
+| `ordered_cache_behaviors` | any | `{}` | Additional path-based behaviors. |
+| `distribution_enabled` | bool | `null` | Enable/disable distribution. |
+| `distribution_comment` | string | `null` | Distribution comment. |
+| `distribution_aliases` | list(string) | `[]` | Alternate domain names. |
+| `default_root_object` | string | `null` | Root object such as `index.html`. |
+| `price_class` | string | `null` | Edge-location price class. |
+| `http_version` | string | `null` | Supported HTTP version setting. |
+| `is_ipv6_enabled` | bool | `null` | Enable IPv6. |
+| `use_default_certificate` | bool | `null` | Use default CloudFront certificate. |
+| `acm_certificate_arn` | string | `null` | Existing ACM certificate ARN in `us-east-1`. |
+| `minimum_protocol_version` | string | `null` | Minimum viewer TLS protocol. |
+| `tags` | map(string) | `null` | Tags for supported resources. |
+| `custom_error_responses` | any | `null` | Custom error response list. |
+| `cloudfront_functions` | any | `{}` | CloudFront Functions map. |
+| `waf_enabled` | bool | `null` | Associate an existing WAF Web ACL. |
+| `waf_web_acl_arn` | string | `null` | Existing CloudFront-scope WAF Web ACL ARN. |
+| `geo_restriction_type` | string | `none` | `none`, `whitelist`, or `blacklist`. |
+| `geo_restriction_locations` | list(string) | `[]` | Country codes for geographic restrictions. |
+| `enable_logging` | bool | `false` | Enable access logging. |
+| `logging_destination_type` | string | `S3` | `S3`, `CLOUDWATCH_LOGS`, `KINESIS_FIREHOSE`, or `LEGACY_S3`. |
+| `existing_s3_bucket_name` | string | `null` | Existing logging bucket name. |
+| `logging_s3_bucket_region` | string | `us-east-1` | Logging bucket region. |
+| `existing_cloudwatch_log_group_name` | string | `null` | Existing CloudWatch log group name. |
+| `existing_firehose_stream_name` | string | `null` | Existing Firehose stream name. |
+| `logging_source_name` | string | `cloudfront-access-logs-source` | Logging v2 source name. |
+| `logging_destination_name` | string | `cloudfront-access-logs-destination` | Logging v2 destination name. |
+| `logging_output_format` | string | `json` | Logging v2 output format. |
+| `logging_s3_prefix` | string | `""` | Legacy S3 logging prefix. |
+| `logging_include_cookies` | bool | `false` | Include cookies in legacy logs. |
+| `logging_s3_suffix_path` | string | `null` | Standard logging v2 S3 suffix path. |
+| `logging_s3_hive_compatible_path` | bool | `false` | Hive-compatible S3 delivery paths. |
+
 ### 5.1 AWS and existing S3 origin configuration
 
 | Variable | Type | Default | Description |
@@ -179,6 +226,213 @@ Origin attributes:
 | `origin_ssl_protocols` | `["TLSv1.2"]` | SSL/TLS protocols for custom origins. |
 | `origin_keepalive_timeout` | `5` | Custom origin keep-alive timeout. |
 
+#### Mapping AWS console origin choices to this module
+
+The AWS console presents several origin choices, but this module deliberately uses two Terraform origin configurations:
+
+- `S3`: CloudFront S3 REST origin configuration. Use this for a private S3 bucket with OAC.
+- `CUSTOM`: CloudFront custom HTTP/HTTPS origin configuration. Use this for an existing public/reachable HTTP or HTTPS origin.
+
+The following services normally use `origin_type = "CUSTOM"` in this module:
+
+| AWS origin/service | Module `origin_type` | Notes |
+|---|---|---|
+| S3 REST endpoint | `S3` | Use OAC for private bucket access. |
+| Application Load Balancer (ALB) | `CUSTOM` | Supply the existing ALB DNS name. |
+| Network Load Balancer (NLB) | `CUSTOM` | Supply the existing NLB DNS name. |
+| API Gateway | `CUSTOM` | Supply the API invoke domain; use `origin_path` for the stage when appropriate. |
+| Lambda Function URL | `CUSTOM` | Supply the Function URL hostname. |
+| MediaPackage or another HTTP/HTTPS service | `CUSTOM` | Supply its origin hostname. |
+| S3 static website endpoint | `CUSTOM` | Website endpoints use HTTP custom-origin behavior and do not use S3 OAC. |
+
+The module configures CloudFront to use these origins; it does not create the ALB, NLB, API Gateway, Lambda function, MediaPackage resource, or S3 bucket. Those resources and their network/security configuration must already exist.
+
+VPC origins are not implemented in the current module. A private ALB/NLB/EC2 origin must not be configured as `CUSTOM` and assumed to work as a CloudFront VPC origin. VPC origin support requires a separate implementation.
+
+#### Example: existing ALB or NLB as a custom origin
+
+origins = {
+  application_origin = {
+    domain_name            = "my-existing-alb-123.ap-south-1.elb.amazonaws.com"
+    origin_type            = "CUSTOM"
+    origin_protocol_policy = "https-only"
+    https_port             = 443
+    origin_ssl_protocols   = ["TLSv1.2"]
+  }
+}
+
+default_cache_behavior = {
+  target_origin_key       = "application_origin"
+  viewer_protocol_policy  = "redirect-to-https"
+  allowed_methods         = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+  cached_methods          = ["GET", "HEAD"]
+  compress                = true
+
+  cache_policy = {
+    type = "NONE"
+  }
+
+  origin_request_policy = {
+    type         = "MANAGED"
+    managed_name = "AllViewerExceptHostHeader"
+  }
+
+  response_headers_policy = {
+    type = "NONE"
+  }
+}
+
+
+Use the same configuration shape for an NLB, replacing `domain_name` with the existing NLB DNS name. The listener protocol and port must match the selected origin protocol settings.
+
+#### Example: API Gateway as a custom origin
+
+origins = {
+  api_gateway = {
+    domain_name            = "abc123.execute-api.ap-south-1.amazonaws.com"
+    origin_path             = "/prod"
+    origin_type             = "CUSTOM"
+    origin_protocol_policy  = "https-only"
+    https_port              = 443
+    origin_ssl_protocols    = ["TLSv1.2"]
+  }
+}
+
+default_cache_behavior = {
+  target_origin_key       = "api_gateway"
+  viewer_protocol_policy  = "redirect-to-https"
+  allowed_methods         = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+  cached_methods          = ["GET", "HEAD"]
+  compress                = true
+
+  cache_policy = {
+    type = "NONE"
+  }
+
+  origin_request_policy = {
+    type         = "MANAGED"
+    managed_name = "AllViewerExceptHostHeader"
+  }
+
+  response_headers_policy = {
+    type = "NONE"
+  }
+}
+
+
+The `origin_path` is optional and should match the API Gateway stage/path required by the API. Choose the origin request policy based on the headers, cookies, and query strings that the API actually requires. Configure caching carefully for dynamic API responses.
+
+#### Example: Lambda Function URL as a custom origin
+
+origins = {
+  lambda_url = {
+    domain_name            = "abcdefgh.lambda-url.ap-south-1.on.aws"
+    origin_type            = "CUSTOM"
+    origin_protocol_policy = "https-only"
+    https_port             = 443
+    origin_ssl_protocols   = ["TLSv1.2"]
+  }
+}
+
+default_cache_behavior = {
+  target_origin_key       = "lambda_url"
+  viewer_protocol_policy  = "redirect-to-https"
+  allowed_methods         = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+  cached_methods          = ["GET", "HEAD"]
+  compress                = true
+
+  cache_policy = {
+    type = "NONE"
+  }
+
+  origin_request_policy = {
+    type         = "MANAGED"
+    managed_name = "AllViewerExceptHostHeader"
+  }
+
+  response_headers_policy = {
+    type = "NONE"
+  }
+}
+
+This example configures a Lambda Function URL as an HTTP origin. It does not create the Lambda function or Function URL, and it does not configure Lambda@Edge. If the Function URL uses AWS_IAM authentication, additional origin authentication/signing design is required; this simple example does not provide that automatically.
+
+#### Example: multiple origins with path-based routing
+
+Use one origin as the default and route a path pattern to a second origin using `ordered_cache_behaviors`.
+
+origin_access_controls = {
+  s3_oac = {
+    name             = "cloudfront-s3-oac"
+    description      = "OAC for private S3 origin"
+    origin_type      = "s3"
+    signing_behavior = "always"
+  }
+}
+
+origins = {
+  s3_origin = {
+    domain_name               = "my-site.s3.ap-south-1.amazonaws.com"
+    origin_type               = "S3"
+    origin_access_control_key = "s3_oac"
+  }
+
+  application_origin = {
+    domain_name            = "my-existing-alb-123.ap-south-1.elb.amazonaws.com"
+    origin_type            = "CUSTOM"
+    origin_protocol_policy = "https-only"
+    https_port             = 443
+    origin_ssl_protocols   = ["TLSv1.2"]
+  }
+}
+
+default_cache_behavior = {
+  target_origin_key       = "s3_origin"
+  viewer_protocol_policy  = "redirect-to-https"
+  allowed_methods         = ["GET", "HEAD"]
+  cached_methods          = ["GET", "HEAD"]
+  compress                = true
+
+  cache_policy = {
+    type         = "MANAGED"
+    managed_name = "CachingOptimized"
+  }
+
+  origin_request_policy = {
+    type = "NONE"
+  }
+
+  response_headers_policy = {
+    type = "NONE"
+  }
+}
+
+ordered_cache_behaviors = {
+  api_behavior = {
+    path_pattern           = "/api/*"
+    target_origin_key      = "application_origin"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods         = ["GET", "HEAD"]
+    compress               = true
+
+    cache_policy = {
+      type = "NONE"
+    }
+
+    origin_request_policy = {
+      type         = "MANAGED"
+      managed_name = "AllViewerExceptHostHeader"
+    }
+
+    response_headers_policy = {
+      type = "NONE"
+    }
+  }
+}
+
+Every `target_origin_key` must match a key in `origins`. Every OAC key referenced by `origin_access_control_key` must match a key in `origin_access_controls`.
+
 #### Origin Access Control configuration
 
 OAC provides authenticated access between CloudFront and supported origins.
@@ -203,14 +457,12 @@ The S3 origin's `origin_access_control_key` must reference an OAC configured wit
 
 #### Per-origin settings
 
-The `origin_settings` map uses the same keys as `origins`.
+The `origin_settings` map uses the same keys as `origins`. Although the input schema currently accepts `mutual_tls_enabled` and `mutual_tls_certificate_arn`, the current distribution resource does not implement an origin mutual TLS block. These attributes are therefore not supported features yet and must not be relied on.
 
 | Attribute | Default | Description |
 |---|---|---|
-| `mode` | `RECOMMENDED` | `RECOMMENDED` or `CUSTOM`. |
-| `mutual_tls_enabled` | `false` | Enables mutual TLS configuration. |
-| `mutual_tls_certificate_arn` | Not set | Client certificate ARN when mutual TLS is enabled. |
-| `custom_headers` | `{}` | Map of custom origin headers. |
+| `mode` | `RECOMMENDED` | Accepted values: `RECOMMENDED` or `CUSTOM`; currently normalized but not used to select a different distribution block. |
+| `custom_headers` | `{}` | Map of custom origin headers sent by CloudFront to the origin. |
 | `origin_shield.enabled` | `false` | Enables Origin Shield. |
 | `origin_shield.region` | Not set | AWS region for Origin Shield. |
 | `connection_attempts` | `3` | Valid range: 1–3. |
@@ -313,6 +565,20 @@ Common supported values:
 - `http2`
 - `http2and3`
 - `http3`
+
+#### Price class and edge-location coverage
+
+The `price_class` setting controls the set of CloudFront edge locations that may be used to serve requests. It is a coverage/cost selection, not a setting to pin a distribution to one specific edge location. CloudFront selects an appropriate edge location from the locations available to the selected price class.
+
+| Value | Coverage |
+|---|---|
+| `PriceClass_100` | Lowest-cost edge locations, primarily North America and Europe, plus selected locations in Asia, the Middle East, and Africa. |
+| `PriceClass_200` | All `PriceClass_100` locations, plus additional locations in Asia, the Middle East, and Africa. |
+| `PriceClass_All` | All CloudFront edge locations, including South America and other higher-cost locations. |
+
+Choose a price class based on the geographic locations where viewers are expected and the applicable data-transfer pricing. If broad coverage in India and other parts of Asia is important, evaluate `PriceClass_200` or `PriceClass_All`; `PriceClass_100` does not include every CloudFront edge location in those regions.
+
+**Important distinction:** `price_class` controls CloudFront edge-location coverage. `geo_restriction_type` and `geo_restriction_locations` control which viewer countries are allowed or blocked. They do not select edge locations.
 
 Example:
 
@@ -752,7 +1018,7 @@ enable_logging = false
 
 Logging destinations must exist before applying the module. The module creates the CloudFront logging delivery configuration but does not create the destination bucket, log group, or Firehose stream.
 
-For standard logging v2, the delivery resources are configured in `us-east-1`. The destination must also have the required permissions for CloudFront log delivery.
+For standard logging v2, the delivery resources are configured in `us-east-1`. The destination must also have the required permissions for CloudFront log delivery. The root interface selects the destination by name and looks up its ARN; the child module receives the resolved destination ARN and creates the standard logging v2 source, destination, and delivery resources. `logging_s3_prefix` and `logging_include_cookies` apply to legacy S3 logging. `logging_s3_suffix_path` and `logging_s3_hive_compatible_path` apply to standard logging v2 S3 delivery.
 
 ### 5.12 Tags
 
@@ -803,7 +1069,7 @@ output "distribution_id" {
 }
 
 
-The child module also defines outputs for created CloudFront Functions, custom policy IDs, logging delivery resources, distribution status, and pricing subscription details. These are not currently re-exported by the root module.
+The child module also defines outputs for distribution enabled state, created CloudFront Function ARNs, custom cache/origin-request/response-headers policy IDs, standard logging v2 delivery/source/destination ARNs, pricing plan tier, usage level, subscription ARN, subscription status, and subscription status reason. These child outputs are not currently re-exported by the root module.
 
 ## 7. Complete example configuration
 
@@ -938,7 +1204,11 @@ tags = {
 
 ## 10. Scope and limitations
 
-The current module supports the features documented above.
+The current module supports the features documented above. The implementation uses `S3` and `CUSTOM` as the only supported `origins[*].origin_type` values. ALB, NLB, API Gateway, Lambda Function URL, MediaPackage, and other HTTP/HTTPS services are configured as `CUSTOM` origins; they are not separate `origin_type` values.
+
+The `origin_settings.mode` field currently accepts `RECOMMENDED` or `CUSTOM` and is normalized in locals, but it does not currently alter the distribution resource configuration. Do not rely on it to enable a different origin mode.
+
+The OAC input validation accepts `s3`, `mediastore`, `mediapackagev2`, and `lambda`. The current origin resource implementation creates S3 or custom origin blocks only. The documented and tested private S3 OAC use case is an S3 REST origin with an OAC configured as `s3`. Other OAC/origin combinations should be verified against the AWS CloudFront API and module implementation before use.
 
 The following are outside the current implementation scope:
 
@@ -950,6 +1220,7 @@ The following are outside the current implementation scope:
 - ALB, NLB, and API Gateway creation.
 - Lambda@Edge.
 - CloudFront VPC origins.
+- Origin mutual TLS (the current input schema contains placeholders, but the distribution resource does not implement the feature).
 - Signed URLs and signed cookies.
 - Field-level encryption.
 - Continuous deployment policies.

@@ -1,6 +1,6 @@
 module "s3" {
 
-  source = "./module/s3/"
+  source = "./modules/"
 
   #################################
   # Bucket Configuration
@@ -13,10 +13,6 @@ module "s3" {
   project = var.project
 
   application = var.application
-
-  owner = var.owner
-
-  cost_center = var.cost_center
 
   additional_tags = var.additional_tags
 

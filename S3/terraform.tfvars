@@ -16,10 +16,6 @@ project = "NOVARTIS"
 
 application = "S3"
 
-owner = "SHANKAR"
-
-cost_center = "0000"
-
 additional_tags = {}
 
 
@@ -64,13 +60,13 @@ restrict_public_buckets = true
 # Static Website Hosting
 #################################
 
-static_website_type = "website"
+static_website_type = null
 
 #################################
 # Static Website Hosting
 #################################
 
-website_index_document = "index.html"
+website_index_document = null
 
 website_error_document = null
 

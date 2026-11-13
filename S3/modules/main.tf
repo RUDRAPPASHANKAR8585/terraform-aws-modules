@@ -16,8 +16,6 @@ resource "aws_s3_bucket" "this" {
       Environment = var.environment
       Project     = var.project
       Application = var.application
-      Owner       = var.owner
-      CostCenter  = var.cost_center
     },
 
     {

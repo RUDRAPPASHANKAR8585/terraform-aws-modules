@@ -281,15 +281,6 @@ variable "application" {
   type        = string
 }
 
-variable "owner" {
-  description = "Application owner."
-  type        = string
-}
-
-variable "cost_center" {
-  description = "Cost center."
-  type        = string
-}
 
 variable "additional_tags" {
   description = "Additional tags."
